@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn *)",
+      "Bash(curl -s *)",
+      "Bash(taskkill *)",
+      "Bash(tasklist *)",
+      "Bash(xargs *)",
+      "Bash(cmd //c \"netstat -ano *\")"
+    ]
+  }
+}

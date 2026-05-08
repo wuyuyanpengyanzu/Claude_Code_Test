@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: todo
+
+  # ====================== 数据库配置 ======================
+  # 使用占位符，可通过环境变量或 -D 参数覆盖
+  # 格式：${变量名:默认值}
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/todo?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+
+# ====================== MyBatis-Plus 配置 ======================
+mybatis-plus:
+  # mapper.xml 文件路径（若使用 XML 映射）
+  mapper-locations: classpath:mapper/**/*.xml
+  # 全局配置
+  global-config:
+    db-config:
+      # 主键类型：AUTO=数据库自增
+      id-type: auto
+      # 默认表前缀
+      table-prefix: ""
+  # 类型别名包扫描路径（简化 resultType 指定）
+  type-aliases-package: com.example.todo.entity
+
+# ====================== 服务端口 ======================
+server:
+  port: 8080
+
+# ====================== 日志配置 ======================
+logging:
+  level:
+    root: INFO
+
+    com.example.todo: DEBUG
+    com.example.todo.mapper: DEBUG
+
+    # 降噪（关键）
+    com.baomidou.mybatisplus: WARN
+    org.apache.ibatis: WARN
+    com.zaxxer.hikari: WARN
+    org.springframework.jdbc: WARN

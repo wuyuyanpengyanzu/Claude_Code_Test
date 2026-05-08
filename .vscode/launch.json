@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "todo",
+            "request": "launch",
+            "mainClass": "com.example.todo.TodoApplication",
+            "projectName": "todo",
+            // 关键：强制日志在终端面板显示
+            "console": "integratedTerminal"
+        }
+    ]
+}

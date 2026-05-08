@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s *)",
+      "Bash(netstat -ano)",
+      "Bash(npm install *)",
+      "Bash(npm create *)",
+      "Bash(where node *)",
+      "Bash(where npm *)",
+      "Bash(taskkill *)"
+    ],
+    "additionalDirectories": []
+  }
+}
