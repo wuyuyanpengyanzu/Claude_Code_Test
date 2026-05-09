@@ -2,14 +2,18 @@ package com.example.todo.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.example.todo.common.BusinessException;
 import com.example.todo.entity.TodoItem;
 import com.example.todo.mapper.TodoItemMapper;
 import com.example.todo.service.TodoService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Todo 任务服务实现类
@@ -46,18 +50,31 @@ public class TodoServiceImpl implements TodoService {
     public List<TodoItem> list(String title) {
         LambdaQueryWrapper<TodoItem> wrapper = new LambdaQueryWrapper<>();
 
-        // 如果传了 title 参数，按标题模糊搜索
-        // wrapper.like(TodoItem::getTitle, title) 生成 SQL: WHERE title LIKE '%关键字%'
         if (title != null && !title.trim().isEmpty()) {
             wrapper.like(TodoItem::getTitle, title);
         }
 
-        // 按星标升序（重要的在前 1 有星标），再按 状态 升序 , 最后再按 id 降序
-        wrapper.orderByDesc(TodoItem::getIsStarred)
+        // 先按 parent_id 升序（顶级任务在前），再按星标、状态、ID 排序
+        wrapper.orderByAsc(TodoItem::getParentId)
+                .orderByDesc(TodoItem::getIsStarred)
                 .orderByAsc(TodoItem::getStatus)
                 .orderByDesc(TodoItem::getId);
 
-        return todoItemMapper.selectList(wrapper);
+        List<TodoItem> allItems = todoItemMapper.selectList(wrapper);
+
+        // 构建父子树：分离顶级任务和子任务，将子任务挂到对应父任务下
+        Map<Long, List<TodoItem>> childrenMap = allItems.stream()
+                .filter(item -> item.getParentId() != null)
+                .collect(Collectors.groupingBy(TodoItem::getParentId));
+
+        List<TodoItem> tree = new ArrayList<>();
+        for (TodoItem item : allItems) {
+            if (item.getParentId() == null) {
+                item.setChildren(childrenMap.getOrDefault(item.getId(), new ArrayList<>()));
+                tree.add(item);
+            }
+        }
+        return tree;
     }
 
     @Override
@@ -70,6 +87,17 @@ public class TodoServiceImpl implements TodoService {
         // 状态默认值处理：如果前端没有传 status，默认设为 0（未完成）
         if (todoItem.getStatus() == null) {
             todoItem.setStatus(0);
+        }
+
+        // 二级结构约束：如果指定了 parentId，校验父任务本身不是子任务
+        if (todoItem.getParentId() != null) {
+            TodoItem parentItem = todoItemMapper.selectById(todoItem.getParentId());
+            if (parentItem == null) {
+                throw new BusinessException("父任务不存在");
+            }
+            if (parentItem.getParentId() != null) {
+                throw new BusinessException("不能在子任务下继续添加子任务");
+            }
         }
 
         // 插入数据库
@@ -144,5 +172,21 @@ public class TodoServiceImpl implements TodoService {
     @Override
     public void clearCompleted() {
         todoItemMapper.delete(new LambdaQueryWrapper<TodoItem>().eq(TodoItem::getStatus,1));
+    }
+
+    @Override
+    @Transactional
+    public void removeWithChildren(Long id) {
+        TodoItem existingItem = todoItemMapper.selectById(id);
+        if (existingItem == null) {
+            throw new IllegalArgumentException("任务不存在");
+        }
+
+        // 1. 先删除所有子任务（parent_id = id）
+        todoItemMapper.delete(
+                new LambdaQueryWrapper<TodoItem>().eq(TodoItem::getParentId, id));
+
+        // 2. 再删除父任务自身
+        todoItemMapper.deleteById(id);
     }
 }

@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Todo 项实体类
@@ -128,11 +129,18 @@ public class TodoItem {
     private Integer isStarred;
 
     /**
-     * 演示非数据库字段
+     * 父任务 ID
      *
-     * 使用 @TableField(exist = false) 标记，表示该字段不是数据库列
-     * 常见用途：前端展示用字段、计算字段、临时存储字段等
+     * NULL 表示顶级任务，非 NULL 表示该任务是某个任务的子任务
+     * 数据库列名 parent_id，MyBatis-Plus 自动驼峰转下划线映射
+     */
+    private Long parentId;
+
+    /**
+     * 子任务列表（非数据库字段）
+     *
+     * 用于构建父子树结构返回给前端，不映射到数据库列
      */
     @TableField(exist = false)
-    private String extraInfo;
+    private List<TodoItem> children;
 }

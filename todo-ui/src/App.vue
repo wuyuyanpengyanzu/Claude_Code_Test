@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { getTodoList, addTodo, updateTodo, deleteTodo, getStats, clearCompletedTodo } from './api/todo'
+import { getTodoList, addTodo, updateTodo, deleteTodo, deleteTodoCascade, getStats, clearCompletedTodo } from './api/todo'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Star, StarFilled, Search } from '@element-plus/icons-vue'
+import { Star, StarFilled, Search, Plus } from '@element-plus/icons-vue'
+import TodoItem from './components/TodoItem.vue'
 
 interface TodoItem {
   id: number
@@ -19,6 +20,7 @@ const loading = ref(false)
 const newTitle = ref('')
 const newContent = ref('')
 const keyword = ref('')
+const newParentId = ref<number | undefined>(undefined)
 
 // 统计数据
 const stats = ref({ total: 0, completed: 0, pending: 0 })
@@ -90,11 +92,19 @@ const handleAdd = async () => {
     return
   }
   try {
-    const res = await addTodo({ title, content: newContent.value.trim() || undefined })
+    const res = await addTodo({
+      title,
+      content: newContent.value.trim() || undefined,
+      parentId: newParentId.value,
+    })
     if (res.data.code === 200) {
-      ElMessage.success({ message: '添加成功', duration: 2000 })
+      ElMessage.success({
+        message: newParentId.value ? '子任务添加成功' : '添加成功',
+        duration: 2000,
+      })
       newTitle.value = ''
       newContent.value = ''
+      newParentId.value = undefined
       await fetchList()
       await fetchStats()
     }
@@ -134,22 +144,36 @@ const handleToggleStar = async (item: TodoItem) => {
   }
 }
 
-// 删除任务
+// 添加子任务：设置 parentId 并聚焦标题输入框
+const handleAddSubtask = (parentId: number) => {
+  newParentId.value = parentId
+  newTitle.value = ''
+  newContent.value = ''
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// 删除任务（有子任务时级联删除）
 const handleDelete = async (item: TodoItem) => {
+  const hasChildren = (item.children?.length ?? 0) > 0
+  const msg = hasChildren
+    ? `确定要删除「${item.title}」及其所有子任务吗？此操作不可恢复。`
+    : `确定要删除「${item.title}」吗？`
+
   try {
-    await ElMessageBox.confirm(`确定要删除「${item.title}」吗？`, '确认删除', {
+    await ElMessageBox.confirm(msg, '确认删除', {
       type: 'warning',
       confirmButtonText: '确定',
       cancelButtonText: '取消',
     })
-    const res = await deleteTodo(item.id)
+    const res = hasChildren
+      ? await deleteTodoCascade(item.id)
+      : await deleteTodo(item.id)
     if (res.data.code === 200) {
       ElMessage.success({ message: '删除成功', duration: 2000 })
       await fetchList()
       await fetchStats()
     }
   } catch (error: any) {
-    // 取消弹窗时不报错
     if (error?.toString().includes('cancel')) return
     ElMessage.error('删除失败')
   }
@@ -163,206 +187,487 @@ onMounted(() => {
 
 <template>
   <div class="app-wrapper">
-    <el-card class="main-card" shadow="always">
-      <template #header>
-        <h1 class="card-title">Todo List</h1>
-      </template>
+    <!-- 顶部标题区 -->
+    <header class="app-header">
+      <h1 class="app-title">Todo List</h1>
+      <p class="app-subtitle" v-if="stats.total > 0">
+        已完成 <strong>{{ stats.completed }}</strong> / {{ stats.total }} 项任务
+      </p>
+      <p class="app-subtitle" v-else>还没有任务，开始添加吧</p>
+    </header>
 
-      <!-- 统计区域 -->
-      <div class="stats-section">
-        <div class="stats-numbers">
-          <el-statistic title="总计" :value="stats.total" />
-          <el-statistic title="已完成" :value="stats.completed">
-            <template #suffix>
-              <transition name="fade">
-              <el-button
-                v-if="stats.completed > 0"
-                type="danger"
-                size="small"
-                plain
-                :loading="loading"
-                style="margin-left: 6px"
-                @click="handleClearCompleted"
-              >
-                清空
-              </el-button>
-              </transition>
-            </template>
-          </el-statistic>
-          <el-statistic title="待办" :value="stats.pending" />
+    <!-- 统计卡片行 -->
+    <div class="stats-row">
+      <div class="stat-card stat-card--total">
+        <div class="stat-card__accent"></div>
+        <div class="stat-card__body">
+          <span class="stat-card__value">{{ stats.total }}</span>
+          <span class="stat-card__label">总计</span>
         </div>
-        <el-progress
-          :percentage="statsPercentage"
-          :stroke-width="24"
-          :text-inside="true"
-          status="success"
-        />
       </div>
+      <div class="stat-card stat-card--done">
+        <div class="stat-card__accent"></div>
+        <div class="stat-card__body">
+          <span class="stat-card__value">{{ stats.completed }}</span>
+          <span class="stat-card__label">已完成</span>
+        </div>
+        <transition name="fade">
+          <el-button
+            v-if="stats.completed > 0"
+            type="danger"
+            size="small"
+            text
+            :loading="loading"
+            class="stat-card__clear-btn"
+            @click="handleClearCompleted"
+          >
+            清空
+          </el-button>
+        </transition>
+      </div>
+      <div class="stat-card stat-card--pending">
+        <div class="stat-card__accent"></div>
+        <div class="stat-card__body">
+          <span class="stat-card__value">{{ stats.pending }}</span>
+          <span class="stat-card__label">待办</span>
+        </div>
+      </div>
+    </div>
 
-      <!-- 操作栏：新增 + 搜索 -->
-      <div class="toolbar">
-        <el-form :inline="true" class="add-form" @submit.prevent="handleAdd">
-          <el-form-item>
-            <el-input
-              v-model="newTitle"
-              placeholder="输入任务标题"
-              :prefix-icon = 'Search'
-              clearable
-              style="width: 260px"
-              @keyup.enter="handleAdd"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-input
-              v-model="newContent"
-              placeholder="输入内容描述"
-              :prefix-icon = 'Search'
-              clearable
-              style="width: 260px"
-              @keyup.enter="handleAdd"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" size="small" @click="handleAdd">添加</el-button>
-          </el-form-item>
-        </el-form>
+    <!-- 进度条 -->
+    <div class="progress-wrap" v-if="stats.total > 0">
+      <el-progress
+        :percentage="statsPercentage"
+        :stroke-width="10"
+        :show-text="false"
+        status="success"
+      />
+      <span class="progress-label">完成进度 {{ statsPercentage }}%</span>
+    </div>
 
+    <!-- 操作区 -->
+    <div class="action-section">
+      <div class="action-card add-card">
+        <h3 class="action-card__title">
+          {{ newParentId ? '添加子任务' : '添加新任务' }}
+        </h3>
+        <el-tag
+          v-if="newParentId"
+          type="warning"
+          closable
+          size="small"
+          class="subtask-hint"
+          @close="newParentId = undefined"
+        >
+          父任务 ID: {{ newParentId }}
+        </el-tag>
+        <div class="add-form">
+          <el-input
+            v-model="newTitle"
+            placeholder="任务标题"
+            clearable
+            class="add-form__input"
+            @keyup.enter="handleAdd"
+          />
+          <el-input
+            v-model="newContent"
+            placeholder="内容描述（可选）"
+            clearable
+            class="add-form__input"
+            @keyup.enter="handleAdd"
+          />
+          <el-button type="primary" @click="handleAdd" class="add-form__btn">
+            添加任务
+          </el-button>
+        </div>
+      </div>
+      <div class="action-card search-card">
+        <h3 class="action-card__title">搜索</h3>
         <el-input
           v-model="keyword"
-          placeholder="搜索任务..."
+          placeholder="输入关键字回车搜索..."
           :prefix-icon="Search"
           clearable
-          style="width: 220px"
           @keyup.enter="handleSearch"
           @clear="handleClear"
         />
       </div>
+    </div>
 
-      <!-- 任务列表 -->
-      <el-table :data="todoList" v-loading="loading" stripe style="width: 100%">
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column label="标题">
+    <!-- 任务列表 -->
+    <div class="table-section">
+      <el-table
+        :data="todoList"
+        v-loading="loading"
+        stripe
+        row-key="id"
+        :tree-props="{ children: 'children' }"
+        class="todo-table"
+      >
+        <el-table-column prop="id" label="ID" width="70" align="center" />
+        <el-table-column label="标题" min-width="200">
           <template #default="{ row }">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <!-- 这里的点击事件使用了 .stop 阻止冒泡，防止触发表格行点击（如果你以后加的话） -->
+            <div class="task-title-cell">
               <el-icon
-                  class="star-icon"
-                  @click.stop="handleToggleStar(row)"
+                class="star-icon"
+                @click.stop="handleToggleStar(row)"
               >
-                <!-- 这里引用了引入的组件，报错会随之消失 -->
-                <StarFilled v-if="row.isStarred === 1" style="color: #f7ba2a" />
-                <Star v-else style="color: #c0c4cc" />
+                <StarFilled v-if="row.isStarred === 1" class="star--active" />
+                <Star v-else class="star--inactive" />
               </el-icon>
-
               <span :class="{ 'task-completed': row.status === 1 }">
-        {{ row.title }}
-      </span>
+                {{ row.title }}
+              </span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="content" label="内容" show-overflow-tooltip />
-        <el-table-column prop="status" label="状态" width="120" align="center">
+        <el-table-column prop="content" label="内容" show-overflow-tooltip min-width="140" />
+        <el-table-column label="状态" width="110" align="center">
           <template #default="{ row }">
             <el-tag
               :type="row.status === 0 ? 'info' : 'success'"
-              style="cursor: pointer"
+              class="status-tag"
               @click="handleToggleStatus(row)"
             >
               {{ row.status === 0 ? '未完成' : '已完成' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="180" />
-        <el-table-column label="操作" width="100" align="center">
+        <el-table-column prop="createTime" label="创建时间" width="175" />
+        <el-table-column label="操作" width="130" align="center">
           <template #default="{ row }">
-            <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button
+              v-if="!row.parentId"
+              :icon="Plus"
+              size="small"
+              circle
+              title="添加子任务"
+              @click="handleAddSubtask(row.id)"
+            />
+            <el-button
+              type="danger"
+              size="small"
+              plain
+              @click="handleDelete(row)"
+            >
+              删除
+            </el-button>
           </template>
         </el-table-column>
-
-        <!-- 空状态 -->
         <template #empty>
           <el-empty description="暂无任务，快去添加吧！" />
         </template>
       </el-table>
-    </el-card>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* ========== 全局背景 ========== */
 .app-wrapper {
-  padding: 40px 20px;
   min-height: 100vh;
-  background-color: #f5f7fa;
+  padding: 48px 24px 64px;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -20%, rgba(64, 158, 255, 0.06), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(103, 194, 58, 0.04), transparent),
+    #f5f7fa;
 }
 
-.main-card {
-  max-width: 960px;
-  margin: 0 auto;
-}
-
-.card-title {
-  margin: 0;
+/* ========== 标题区 ========== */
+.app-header {
   text-align: center;
-  font-size: 22px;
+  margin-bottom: 36px;
 }
 
-.toolbar {
+.app-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1d1e1f;
+  letter-spacing: -0.5px;
+}
+
+.app-subtitle {
+  margin: 8px 0 0;
+  font-size: 15px;
+  color: #909399;
+}
+
+.app-subtitle strong {
+  color: #67c23a;
+  font-weight: 600;
+}
+
+/* ========== 统计卡片行 ========== */
+.stats-row {
   display: flex;
-  justify-content: center;
+  gap: 20px;
+  max-width: 960px;
+  margin: 0 auto 20px;
+}
+
+.stat-card {
+  flex: 1;
+  display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  background: #fff;
+  border-radius: 12px;
+  padding: 22px 24px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+  position: relative;
 }
-.toolbar .el-form-item {
-  margin-bottom: 0;
-  margin-right: 12px;
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 8px 20px rgba(0, 0, 0, 0.06);
 }
+
+.stat-card__accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+}
+
+.stat-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-card__value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+.stat-card__label {
+  font-size: 14px;
+  color: #909399;
+  font-weight: 500;
+}
+
+/* 总计 */
+.stat-card--total .stat-card__accent {
+  background: #409eff;
+}
+.stat-card--total .stat-card__value {
+  color: #409eff;
+}
+
+/* 已完成 */
+.stat-card--done .stat-card__accent {
+  background: #67c23a;
+}
+.stat-card--done .stat-card__value {
+  color: #67c23a;
+}
+
+/* 待办 */
+.stat-card--pending .stat-card__accent {
+  background: #e6a23c;
+}
+.stat-card--pending .stat-card__value {
+  color: #e6a23c;
+}
+
+.stat-card__clear-btn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ========== 进度条 ========== */
+.progress-wrap {
+  max-width: 960px;
+  margin: 0 auto 28px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.progress-wrap .el-progress {
+  flex: 1;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: #909399;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* ========== 操作区 ========== */
+.action-section {
+  max-width: 960px;
+  margin: 0 auto 24px;
+  display: flex;
+  gap: 20px;
+}
+
+.action-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px 24px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.action-card__title {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #606266;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.add-card {
+  flex: 1;
+}
+
+.subtask-hint {
+  margin-bottom: 10px;
+}
+
 .add-form {
   display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.add-form__input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.add-form__btn {
+  flex-shrink: 0;
+}
+
+.search-card {
+  width: 320px;
+  flex-shrink: 0;
+}
+
+/* ========== 表格区 ========== */
+.table-section {
+  max-width: 960px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.todo-table {
+  border-radius: 12px;
+}
+
+/* ========== 表格行样式 ========== */
+.task-title-cell {
+  display: flex;
   align-items: center;
+  gap: 10px;
 }
 
 .task-completed {
   text-decoration: line-through;
-  color: #a0a0a0;
+  color: #b0b3bb;
 }
 
-.stats-section {
-  margin-bottom: 20px;
-  padding: 16px 20px;
-  background: #fafafa;
-  border-radius: 8px;
-  border: 1px solid #ebeef5;
+.status-tag {
+  cursor: pointer;
+  transition: transform 0.15s ease;
 }
 
-.stats-numbers {
-  display: flex;
-  justify-content: space-around;
-  margin-bottom: 12px;
+.status-tag:hover {
+  transform: scale(1.08);
 }
 
-/* 进入和离开的过程动画 */
+/* ========== 星标图标 ========== */
+.star-icon {
+  cursor: pointer;
+  font-size: 18px;
+  flex-shrink: 0;
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.star-icon:hover {
+  transform: scale(1.25);
+}
+
+/* 用 class 替代内联 style */
+.star--active {
+  color: #f7ba2a;
+}
+
+.star--inactive {
+  color: #dcdfe6;
+}
+
+/* ========== 过渡动画 ========== */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-/* 进入前和离开后的状态 */
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-  transform: translateX(5px); /* 稍微带一点位移，更显动感 */
+  transform: translateX(6px);
 }
 
-.star-icon {
-  cursor: pointer;
-  font-size: 18px;
-  /* 增加一个简单的缩放动画 */
-  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+/* ========== 树形子行左边框 ========== */
+:deep(.el-table__row--level-1) td:first-child {
+  border-left: 2px solid #e4e7ed;
 }
 
-.star-icon:hover {
-  transform: scale(1.2);
+:deep(.el-table__row--level-2) td:first-child {
+  border-left: 2px solid #ebeef5;
+}
+
+/* ========== 响应式 ========== */
+@media (max-width: 768px) {
+  .app-wrapper {
+    padding: 32px 16px 48px;
+  }
+
+  .stats-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .action-section {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .search-card {
+    width: 100%;
+  }
+
+  .add-form {
+    flex-direction: column;
+  }
+
+  .add-form__input {
+    min-width: 0;
+  }
+
+  .app-title {
+    font-size: 24px;
+  }
 }
 </style>

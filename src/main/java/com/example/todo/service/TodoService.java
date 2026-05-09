@@ -44,4 +44,9 @@ public interface TodoService {
      * 清空所有已完成任务
      */
     void clearCompleted();
+
+    /**
+     * 级联删除任务及其所有子任务
+     */
+    void removeWithChildren(Long id);
 }

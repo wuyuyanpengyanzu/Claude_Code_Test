@@ -44,9 +44,9 @@ export function getTodoList(title?: string) {
 }
 
 /**
- * 新增 Todo
+ * 新增 Todo（支持 parentId 创建子任务）
  */
-export function addTodo(todo: { title: string; content?: string; status?: number }) {
+export function addTodo(todo: { title: string; content?: string; status?: number; parentId?: number }) {
   return request.post('/todos', todo)
 }
 
@@ -69,6 +69,13 @@ export function deleteTodo(id: number) {
  */
 export function getStats() {
   return request.get('/todos/stats')
+}
+
+/**
+ * 级联删除任务及其子任务
+ */
+export function deleteTodoCascade(id: number) {
+  return request.delete(`/todos/${id}/cascade`)
 }
 
 /**

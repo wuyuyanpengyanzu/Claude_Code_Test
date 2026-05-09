@@ -14,6 +14,12 @@ public class GlobalExceptionHandler {
     // 1. 引入 Slf4j 日志对象
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(BusinessException.class)
+    public Result<String> handleBusiness(BusinessException e) {
+        log.warn("[全局异常拦截] 捕获到业务异常: {}", e.getMessage());
+        return Result.error(400, e.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public Result<String> handleIllegalArgument(IllegalArgumentException e) {
         // 2. 在控制台打印带标记的警告/信息日志

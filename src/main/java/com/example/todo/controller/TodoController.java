@@ -99,6 +99,7 @@ public class TodoController {
      */
     @PutMapping("/{id}")
     public Result<String> update(@PathVariable Long id, @RequestBody TodoItem todoItem) {
+        System.out.println("收到更新请求，星标状态为: " + todoItem.getIsStarred());
         todoService.update(id, todoItem);
         return Result.success("更新成功");
     }
@@ -137,5 +138,14 @@ public class TodoController {
     public Result<String> clearCompleted() {
         todoService.clearCompleted();
         return Result.success("已清空所有已完成任务");
+    }
+
+    /**
+     * 级联删除任务及其所有子任务
+     */
+    @DeleteMapping("/{id}/cascade")
+    public Result<String> deleteCascade(@PathVariable Long id) {
+        todoService.removeWithChildren(id);
+        return Result.success("已级联删除该任务及其子任务");
     }
 }

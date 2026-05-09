@@ -1,5 +1,6 @@
 com\example\todo\entity\TodoItem.class
 com\example\todo\TodoApplication.class
+com\example\todo\common\BusinessException.class
 com\example\todo\controller\TodoController.class
 com\example\todo\common\Result.class
 com\example\todo\mapper\TodoItemMapper.class
