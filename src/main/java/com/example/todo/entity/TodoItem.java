@@ -120,6 +120,14 @@ public class TodoItem {
     private LocalDateTime updateTime;
 
     /**
+     * 重要星标
+     *
+     * is_starred
+     * */
+    @TableField("is_starred")
+    private Integer isStarred;
+
+    /**
      * 演示非数据库字段
      *
      * 使用 @TableField(exist = false) 标记，表示该字段不是数据库列

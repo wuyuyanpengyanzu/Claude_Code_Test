@@ -1,5 +1,6 @@
 package com.example.todo.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.example.todo.entity.TodoItem;
 import com.example.todo.mapper.TodoItemMapper;
@@ -43,16 +44,18 @@ public class TodoServiceImpl implements TodoService {
 
     @Override
     public List<TodoItem> list(String title) {
-        QueryWrapper<TodoItem> wrapper = new QueryWrapper<>();
+        LambdaQueryWrapper<TodoItem> wrapper = new LambdaQueryWrapper<>();
 
         // 如果传了 title 参数，按标题模糊搜索
-        // wrapper.like("title", title) 生成 SQL: WHERE title LIKE '%关键字%'
+        // wrapper.like(TodoItem::getTitle, title) 生成 SQL: WHERE title LIKE '%关键字%'
         if (title != null && !title.trim().isEmpty()) {
-            wrapper.like("title", title);
+            wrapper.like(TodoItem::getTitle, title);
         }
 
-        // 按状态升序（未完成 0 在前），再按 id 倒序
-        wrapper.orderByAsc("status").orderByDesc("id");
+        // 按星标升序（重要的在前 1 有星标），再按 状态 升序 , 最后再按 id 降序
+        wrapper.orderByDesc(TodoItem::getIsStarred)
+                .orderByAsc(TodoItem::getStatus)
+                .orderByDesc(TodoItem::getId);
 
         return todoItemMapper.selectList(wrapper);
     }
@@ -98,6 +101,9 @@ public class TodoServiceImpl implements TodoService {
         if (todoItem.getStatus() != null) {
             existingItem.setStatus(todoItem.getStatus());
         }
+        if(todoItem.getIsStarred() != null){
+            existingItem.setIsStarred(todoItem.getIsStarred());
+        }
 
         int rows = todoItemMapper.updateById(existingItem);
         if (rows == 0) {
@@ -137,6 +143,6 @@ public class TodoServiceImpl implements TodoService {
 
     @Override
     public void clearCompleted() {
-        todoItemMapper.delete(new QueryWrapper<TodoItem>().eq("status", 1));
+        todoItemMapper.delete(new LambdaQueryWrapper<TodoItem>().eq(TodoItem::getStatus,1));
     }
 }

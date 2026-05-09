@@ -2,12 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { getTodoList, addTodo, updateTodo, deleteTodo, getStats, clearCompletedTodo } from './api/todo'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import { Star, StarFilled, Search } from '@element-plus/icons-vue'
 
 interface TodoItem {
   id: number
   title: string
   content: string
   status: number
+  isStarred: number
   createTime: string
   updateTime: string
 }
@@ -54,6 +56,7 @@ const handleClearCompleted = async () => {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
     })
+    loading.value = true
     const res = await clearCompletedTodo()
     if (res.data.code === 200) {
       ElMessage.success({ message: '已清空所有已完成任务', duration: 2000 })
@@ -63,6 +66,8 @@ const handleClearCompleted = async () => {
   } catch (error: any) {
     if (error?.toString().includes('cancel')) return
     ElMessage.error('清空失败')
+  } finally {
+    loading.value = false
   }
 }
 
@@ -113,6 +118,22 @@ const handleToggleStatus = async (item: TodoItem) => {
   }
 }
 
+//星标切换
+const handleToggleStar = async (item: TodoItem) => {
+  const newStarred = item.isStarred === 1 ? 0 : 1
+  try {
+    // 调用你现有的 update 接口
+    const res = await updateTodo(item.id, { isStarred: newStarred })
+    if (res.data.code === 200) {
+      item.isStarred = newStarred
+      // 星标改变后，由于排序权重变化，需要重新获取列表以触发“跳跃”效果
+      await fetchList(keyword.value)
+    }
+  } catch (error) {
+    ElMessage.error('设置星标失败')
+  }
+}
+
 // 删除任务
 const handleDelete = async (item: TodoItem) => {
   try {
@@ -153,16 +174,19 @@ onMounted(() => {
           <el-statistic title="总计" :value="stats.total" />
           <el-statistic title="已完成" :value="stats.completed">
             <template #suffix>
+              <transition name="fade">
               <el-button
                 v-if="stats.completed > 0"
                 type="danger"
                 size="small"
-                text
+                plain
+                :loading="loading"
                 style="margin-left: 6px"
                 @click="handleClearCompleted"
               >
                 清空
               </el-button>
+              </transition>
             </template>
           </el-statistic>
           <el-statistic title="待办" :value="stats.pending" />
@@ -182,6 +206,7 @@ onMounted(() => {
             <el-input
               v-model="newTitle"
               placeholder="输入任务标题"
+              :prefix-icon = 'Search'
               clearable
               style="width: 260px"
               @keyup.enter="handleAdd"
@@ -191,6 +216,7 @@ onMounted(() => {
             <el-input
               v-model="newContent"
               placeholder="输入内容描述"
+              :prefix-icon = 'Search'
               clearable
               style="width: 260px"
               @keyup.enter="handleAdd"
@@ -204,7 +230,7 @@ onMounted(() => {
         <el-input
           v-model="keyword"
           placeholder="搜索任务..."
-          prefix-icon="Search"
+          :prefix-icon="Search"
           clearable
           style="width: 220px"
           @keyup.enter="handleSearch"
@@ -217,7 +243,21 @@ onMounted(() => {
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column label="标题">
           <template #default="{ row }">
-            <span :class="{ 'task-completed': row.status === 1 }">{{ row.title }}</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <!-- 这里的点击事件使用了 .stop 阻止冒泡，防止触发表格行点击（如果你以后加的话） -->
+              <el-icon
+                  class="star-icon"
+                  @click.stop="handleToggleStar(row)"
+              >
+                <!-- 这里引用了引入的组件，报错会随之消失 -->
+                <StarFilled v-if="row.isStarred === 1" style="color: #f7ba2a" />
+                <Star v-else style="color: #c0c4cc" />
+              </el-icon>
+
+              <span :class="{ 'task-completed': row.status === 1 }">
+        {{ row.title }}
+      </span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="content" label="内容" show-overflow-tooltip />
@@ -300,5 +340,29 @@ onMounted(() => {
   display: flex;
   justify-content: space-around;
   margin-bottom: 12px;
+}
+
+/* 进入和离开的过程动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* 进入前和离开后的状态 */
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateX(5px); /* 稍微带一点位移，更显动感 */
+}
+
+.star-icon {
+  cursor: pointer;
+  font-size: 18px;
+  /* 增加一个简单的缩放动画 */
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.star-icon:hover {
+  transform: scale(1.2);
 }
 </style>

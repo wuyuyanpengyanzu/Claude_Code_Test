@@ -53,7 +53,7 @@ export function addTodo(todo: { title: string; content?: string; status?: number
 /**
  * 更新 Todo
  */
-export function updateTodo(id: number, todo: { status?: number; title?: string; content?: string }) {
+export function updateTodo(id: number, todo: { status?: number; title?: string; content?: string; isStarred?: number }) {
   return request.put(`/todos/${id}`, todo)
 }
 
