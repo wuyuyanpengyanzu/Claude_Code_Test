@@ -13,6 +13,8 @@ interface TodoItem {
   isStarred: number
   createTime: string
   updateTime: string
+  parentId?: number
+  children?: TodoItem[]
 }
 
 const todoList = ref<TodoItem[]>([])
@@ -113,6 +115,14 @@ const handleAdd = async () => {
   }
 }
 
+const recursivelyCompleteChildren = (parent: TodoItem, status: number) => {
+  if (!parent.children || parent.children.length === 0) return
+  for (const child of parent.children) {
+    child.status = status
+    recursivelyCompleteChildren(child, status)
+  }
+}
+
 const handleToggleStatus = async (item: TodoItem) => {
   const newStatus = item.status === 0 ? 1 : 0
   try {
@@ -120,6 +130,12 @@ const handleToggleStatus = async (item: TodoItem) => {
     if (res.data.code === 200) {
       ElMessage.success({ message: newStatus === 1 ? '标记为已完成' : '标记为未完成', duration: 2000 })
       item.status = newStatus
+
+      // 父任务完成时，立即在本地同步所有子孙状态（乐观更新）
+      if (newStatus === 1) {
+        recursivelyCompleteChildren(item, newStatus)
+      }
+
       await fetchList()
       await fetchStats()
     }

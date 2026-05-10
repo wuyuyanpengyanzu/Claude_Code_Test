@@ -2,6 +2,7 @@ package com.example.todo.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.example.todo.common.BusinessException;
 import com.example.todo.entity.TodoItem;
 import com.example.todo.mapper.TodoItemMapper;
@@ -112,14 +113,13 @@ public class TodoServiceImpl implements TodoService {
     }
 
     @Override
+    @Transactional
     public void update(Long id, TodoItem todoItem) {
-        // 查询该 ID 是否存在
         TodoItem existingItem = todoItemMapper.selectById(id);
         if (existingItem == null) {
             throw new IllegalArgumentException("任务不存在");
         }
 
-        // 只更新前端传入的字段（防止覆盖数据库已有数据）
         if (todoItem.getTitle() != null) {
             existingItem.setTitle(todoItem.getTitle());
         }
@@ -129,13 +129,20 @@ public class TodoServiceImpl implements TodoService {
         if (todoItem.getStatus() != null) {
             existingItem.setStatus(todoItem.getStatus());
         }
-        if(todoItem.getIsStarred() != null){
+        if (todoItem.getIsStarred() != null) {
             existingItem.setIsStarred(todoItem.getIsStarred());
         }
 
         int rows = todoItemMapper.updateById(existingItem);
         if (rows == 0) {
             throw new RuntimeException("更新失败");
+        }
+
+        // 父任务被标记为已完成时，批量更新所有直接子任务
+        if (todoItem.getStatus() != null && todoItem.getStatus() == 1) {
+            UpdateWrapper<TodoItem> updateWrapper = new UpdateWrapper<>();
+            updateWrapper.eq("parent_id", id).set("status", 1);
+            todoItemMapper.update(null, updateWrapper);
         }
     }
 
