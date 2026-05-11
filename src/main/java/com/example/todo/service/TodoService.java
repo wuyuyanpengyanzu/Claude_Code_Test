@@ -69,4 +69,14 @@ public interface TodoService {
      * 物理删除任务（彻底删除，不可恢复）
      */
     void permanentDelete(Long id);
+
+    /**
+     * 递归删除任务及其所有后代子任务
+     */
+    void deleteTaskRecursive(Long id);
+
+    /**
+     * 获取回收站任务列表（QueryWrapper 方式）
+     */
+    List<TodoItem> getRecycleBin();
 }

@@ -248,4 +248,38 @@ public class TodoServiceImpl implements TodoService {
         }
         todoItemMapper.deletePermanentCascade(id);
     }
+
+    @Override
+    @Transactional
+    public void deleteTaskRecursive(Long id) {
+        List<Long> allIds = new ArrayList<>();
+        collectDescendantIds(id, allIds);
+        allIds.add(id);
+        if (!allIds.isEmpty()) {
+            todoItemMapper.deleteBatchIds(allIds);
+        }
+    }
+
+    private void collectDescendantIds(Long parentId, List<Long> result) {
+        LambdaQueryWrapper<TodoItem> wrapper = new LambdaQueryWrapper<>();
+        wrapper.select(TodoItem::getId).eq(TodoItem::getParentId, parentId);
+        List<TodoItem> children = todoItemMapper.selectList(wrapper);
+        for (TodoItem child : children) {
+            Long childId = child.getId();
+            result.add(childId);
+            collectDescendantIds(childId, result);
+        }
+    }
+
+    @Override
+    public List<TodoItem> getRecycleBin() {
+        QueryWrapper<TodoItem> wrapper = new QueryWrapper<>();
+        wrapper.eq("is_deleted", 1)
+                .orderByAsc("parent_id")
+                .orderByAsc("sort_order")
+                .orderByDesc("is_starred")
+                .orderByAsc("status")
+                .orderByDesc("id");
+        return todoItemMapper.selectList(wrapper);
+    }
 }

@@ -182,4 +182,21 @@ public class TodoController {
         todoService.permanentDelete(id);
         return Result.success("已彻底删除");
     }
+
+    /**
+     * 获取回收站任务列表（QueryWrapper 绕过逻辑删除拦截）
+     */
+    @GetMapping("/recycle-bin")
+    public Result<List<TodoItem>> recycleBin() {
+        return Result.success(todoService.getRecycleBin());
+    }
+
+    /**
+     * 还原指定任务及其所有子任务
+     */
+    @PutMapping("/restore/{id}")
+    public Result<String> restoreTask(@PathVariable Long id) {
+        todoService.restore(id);
+        return Result.success("还原成功");
+    }
 }
