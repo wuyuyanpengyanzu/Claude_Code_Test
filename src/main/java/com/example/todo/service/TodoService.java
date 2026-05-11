@@ -49,4 +49,24 @@ public interface TodoService {
      * 级联删除任务及其所有子任务
      */
     void removeWithChildren(Long id);
+
+    /**
+     * 拖拽排序：按传入的 ID 顺序批量更新 sort_order
+     */
+    void reorder(List<Long> ids);
+
+    /**
+     * 获取回收站中的任务列表（is_deleted = 1）
+     */
+    List<TodoItem> getTrash();
+
+    /**
+     * 还原任务及其所有子任务（is_deleted 设回 0）
+     */
+    void restore(Long id);
+
+    /**
+     * 物理删除任务（彻底删除，不可恢复）
+     */
+    void permanentDelete(Long id);
 }

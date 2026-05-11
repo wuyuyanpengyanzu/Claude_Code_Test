@@ -55,9 +55,10 @@ public class TodoServiceImpl implements TodoService {
             wrapper.like(TodoItem::getTitle, title);
         }
 
-        // 先按 parent_id 升序（顶级任务在前），再按星标、状态、ID 排序
+        // 排序权重：parent_id(父子结构) → is_starred(星标置顶) → sort_order(手动排序) → status → id
         wrapper.orderByAsc(TodoItem::getParentId)
                 .orderByDesc(TodoItem::getIsStarred)
+                .orderByAsc(TodoItem::getSortOrder)
                 .orderByAsc(TodoItem::getStatus)
                 .orderByDesc(TodoItem::getId);
 
@@ -101,6 +102,20 @@ public class TodoServiceImpl implements TodoService {
             }
         }
 
+        // 新任务的 sort_order = 当前同组最大 sort_order + 1000
+        LambdaQueryWrapper<TodoItem> maxSortWrapper = new LambdaQueryWrapper<>();
+        if (todoItem.getParentId() != null) {
+            maxSortWrapper.eq(TodoItem::getParentId, todoItem.getParentId());
+        } else {
+            maxSortWrapper.isNull(TodoItem::getParentId);
+        }
+        maxSortWrapper.orderByDesc(TodoItem::getSortOrder).last("LIMIT 1");
+        TodoItem lastItem = todoItemMapper.selectOne(maxSortWrapper);
+        int nextSort = (lastItem != null && lastItem.getSortOrder() != null)
+                ? lastItem.getSortOrder() + 1000
+                : 1000;
+        todoItem.setSortOrder(nextSort);
+
         // 插入数据库
         int rows = todoItemMapper.insert(todoItem);
 
@@ -138,29 +153,28 @@ public class TodoServiceImpl implements TodoService {
             throw new RuntimeException("更新失败");
         }
 
-        // 父任务被标记为已完成时，批量更新所有直接子任务
+        // 父任务被标记为已完成时，批量更新所有未删除的直接子任务
         if (todoItem.getStatus() != null && todoItem.getStatus() == 1) {
             UpdateWrapper<TodoItem> updateWrapper = new UpdateWrapper<>();
-            updateWrapper.eq("parent_id", id).set("status", 1);
+            updateWrapper.eq("parent_id", id).eq("is_deleted", 0).set("status", 1);
             todoItemMapper.update(null, updateWrapper);
         }
     }
 
     @Override
+    @Transactional
     public void delete(Long id) {
-        // 查询该 ID 是否存在
         TodoItem existingItem = todoItemMapper.selectById(id);
         if (existingItem == null) {
             throw new IllegalArgumentException("任务不存在");
         }
 
-        int rows = todoItemMapper.deleteById(id);
-        if (rows == 0) {
-            throw new RuntimeException("删除失败");
-        }
+        // 先逻辑删除所有子任务，再逻辑删除自身
+        todoItemMapper.delete(
+                new LambdaQueryWrapper<TodoItem>().eq(TodoItem::getParentId, id));
+        todoItemMapper.deleteById(id);
     }
 
-    //
     @Override
     public Map<String, Long> getStatistics() {
         long total = todoItemMapper.selectCount(null);
@@ -177,23 +191,61 @@ public class TodoServiceImpl implements TodoService {
     }
 
     @Override
+    @Transactional
     public void clearCompleted() {
-        todoItemMapper.delete(new LambdaQueryWrapper<TodoItem>().eq(TodoItem::getStatus,1));
+        todoItemMapper.delete(new LambdaQueryWrapper<TodoItem>().eq(TodoItem::getStatus, 1));
     }
 
     @Override
     @Transactional
     public void removeWithChildren(Long id) {
-        TodoItem existingItem = todoItemMapper.selectById(id);
-        if (existingItem == null) {
-            throw new IllegalArgumentException("任务不存在");
+        delete(id);
+    }
+
+    @Override
+    @Transactional
+    public void reorder(List<Long> ids) {
+        for (int i = 0; i < ids.size(); i++) {
+            TodoItem item = new TodoItem();
+            item.setId(ids.get(i));
+            item.setSortOrder((i + 1) * 1000);
+            todoItemMapper.updateById(item);
         }
+    }
 
-        // 1. 先删除所有子任务（parent_id = id）
-        todoItemMapper.delete(
-                new LambdaQueryWrapper<TodoItem>().eq(TodoItem::getParentId, id));
+    @Override
+    public List<TodoItem> getTrash() {
+        List<TodoItem> allItems = todoItemMapper.selectTrashList();
 
-        // 2. 再删除父任务自身
-        todoItemMapper.deleteById(id);
+        Map<Long, List<TodoItem>> childrenMap = allItems.stream()
+                .filter(item -> item.getParentId() != null)
+                .collect(Collectors.groupingBy(TodoItem::getParentId));
+
+        List<TodoItem> tree = new ArrayList<>();
+        for (TodoItem item : allItems) {
+            if (item.getParentId() == null) {
+                item.setChildren(childrenMap.getOrDefault(item.getId(), new ArrayList<>()));
+                tree.add(item);
+            }
+        }
+        return tree;
+    }
+
+    @Override
+    @Transactional
+    public void restore(Long id) {
+        int rows = todoItemMapper.restoreCascade(id);
+        if (rows == 0) {
+            throw new IllegalArgumentException("任务不存在或不在回收站中");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void permanentDelete(Long id) {
+        if (todoItemMapper.countTrashById(id) == 0) {
+            throw new IllegalArgumentException("任务不在回收站中");
+        }
+        todoItemMapper.deletePermanentCascade(id);
     }
 }

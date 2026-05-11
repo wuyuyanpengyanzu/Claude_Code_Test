@@ -79,8 +79,36 @@ export function deleteTodoCascade(id: number) {
 }
 
 /**
+ * 拖拽排序：按传入的 ID 顺序更新后端 sort_order
+ */
+export function reorderTodo(ids: number[]) {
+  return request.put('/todos/reorder', ids)
+}
+
+/**
  * 清空所有已完成任务
  */
 export function clearCompletedTodo() {
   return request.delete('/todos/completed')
+}
+
+/**
+ * 获取回收站任务列表
+ */
+export function getTrashList() {
+  return request.get('/todos/trash')
+}
+
+/**
+ * 还原任务
+ */
+export function restoreTodo(id: number) {
+  return request.put(`/todos/${id}/restore`)
+}
+
+/**
+ * 彻底删除任务（物理删除）
+ */
+export function permanentDeleteTodo(id: number) {
+  return request.delete(`/todos/${id}/permanent`)
 }

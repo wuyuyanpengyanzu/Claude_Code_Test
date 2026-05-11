@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { getTodoList, addTodo, updateTodo, deleteTodo, deleteTodoCascade, getStats, clearCompletedTodo } from './api/todo'
+import { getTodoList, addTodo, updateTodo, deleteTodo, deleteTodoCascade, getStats, clearCompletedTodo, reorderTodo, getTrashList, restoreTodo, permanentDeleteTodo } from './api/todo'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Star, StarFilled, Search, Plus } from '@element-plus/icons-vue'
+import { Search, Delete } from '@element-plus/icons-vue'
+import draggable from 'vuedraggable'
 import TodoItem from './components/TodoItem.vue'
 
 interface TodoItem {
@@ -11,6 +12,7 @@ interface TodoItem {
   content: string
   status: number
   isStarred: number
+  sortOrder: number
   createTime: string
   updateTime: string
   parentId?: number
@@ -23,6 +25,7 @@ const newTitle = ref('')
 const newContent = ref('')
 const keyword = ref('')
 const newParentId = ref<number | undefined>(undefined)
+const showTrash = ref(false)
 
 // 统计数据
 const stats = ref({ total: 0, completed: 0, pending: 0 })
@@ -36,6 +39,62 @@ const fetchStats = async () => {
     stats.value = res.data.data || { total: 0, completed: 0, pending: 0 }
   } catch (error) {
     console.error('获取统计数据失败', error)
+  }
+}
+
+// 切换回收站视图
+const toggleTrash = () => {
+  showTrash.value = !showTrash.value
+  if (showTrash.value) {
+    fetchTrashList()
+  } else {
+    fetchList()
+    fetchStats()
+  }
+}
+
+// 获取回收站列表
+const fetchTrashList = async () => {
+  loading.value = true
+  try {
+    const res = await getTrashList()
+    todoList.value = res.data.data || []
+  } catch (error) {
+    console.error('获取回收站失败', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 还原任务
+const handleRestore = async (item: TodoItem) => {
+  try {
+    const res = await restoreTodo(item.id)
+    if (res.data.code === 200) {
+      ElMessage.success({ message: '已还原', duration: 2000 })
+      await fetchTrashList()
+    }
+  } catch (error) {
+    ElMessage.error('还原失败')
+  }
+}
+
+// 彻底删除
+const handlePermanentDelete = async (item: TodoItem) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要彻底删除「${item.title}」吗？此操作不可恢复。`,
+      '确认彻底删除',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' }
+    )
+    const res = await permanentDeleteTodo(item.id)
+    if (res.data.code === 200) {
+      ElMessage.success({ message: '已彻底删除', duration: 2000 })
+      await fetchTrashList()
+    }
+  } catch (error: any) {
+    if (error?.toString().includes('cancel')) return
+    ElMessage.error('删除失败')
   }
 }
 
@@ -195,6 +254,47 @@ const handleDelete = async (item: TodoItem) => {
   }
 }
 
+// 拖拽排序结束回调（顶层）
+const onDragEnd = async (evt: any) => {
+  const { newIndex } = evt
+  const draggedItem = todoList.value[newIndex] as TodoItem
+
+  // 属性随动：非星标任务被拖入星标区（后方仍有星标任务），自动设为星标
+  if (draggedItem && draggedItem.isStarred === 0) {
+    const hasStarredAfter = todoList.value.slice(newIndex + 1).some((t: TodoItem) => t.isStarred === 1)
+    if (hasStarredAfter) {
+      try {
+        await updateTodo(draggedItem.id, { isStarred: 1 })
+        ElMessage.success({ message: '已自动设为星标', duration: 2000 })
+      } catch (error) {
+        ElMessage.error('星标设置失败')
+      }
+      await fetchList(keyword.value)
+      return
+    }
+  }
+
+  const ids = todoList.value.map((item: TodoItem) => item.id)
+  try {
+    await reorderTodo(ids)
+    ElMessage.success({ message: '排序已保存', duration: 1500 })
+  } catch (error) {
+    ElMessage.error('排序保存失败')
+    await fetchList()
+  }
+}
+
+// 子任务拖拽排序回调
+const handleReorderChildren = async (_parentId: number, ids: number[]) => {
+  try {
+    await reorderTodo(ids)
+    ElMessage.success({ message: '子任务排序已保存', duration: 1500 })
+  } catch (error) {
+    ElMessage.error('排序保存失败')
+    await fetchList()
+  }
+}
+
 onMounted(() => {
   fetchList()
   fetchStats()
@@ -205,15 +305,29 @@ onMounted(() => {
   <div class="app-wrapper">
     <!-- 顶部标题区 -->
     <header class="app-header">
-      <h1 class="app-title">Todo List</h1>
-      <p class="app-subtitle" v-if="stats.total > 0">
+      <h1 class="app-title">
+        {{ showTrash ? '回收站' : 'Todo List' }}
+      </h1>
+      <p class="app-subtitle" v-if="!showTrash && stats.total > 0">
         已完成 <strong>{{ stats.completed }}</strong> / {{ stats.total }} 项任务
       </p>
-      <p class="app-subtitle" v-else>还没有任务，开始添加吧</p>
+      <p class="app-subtitle" v-else-if="!showTrash">还没有任务，开始添加吧</p>
+      <p class="app-subtitle" v-else>已删除的任务，可还原或彻底删除</p>
+
+      <el-button
+        :type="showTrash ? 'primary' : 'default'"
+        :icon="Delete"
+        size="small"
+        round
+        class="trash-toggle"
+        @click="toggleTrash"
+      >
+        {{ showTrash ? '返回列表' : '回收站' }}
+      </el-button>
     </header>
 
     <!-- 统计卡片行 -->
-    <div class="stats-row">
+    <div class="stats-row" v-if="!showTrash">
       <div class="stat-card stat-card--total">
         <div class="stat-card__accent"></div>
         <div class="stat-card__body">
@@ -251,7 +365,7 @@ onMounted(() => {
     </div>
 
     <!-- 进度条 -->
-    <div class="progress-wrap" v-if="stats.total > 0">
+    <div class="progress-wrap" v-if="!showTrash && stats.total > 0">
       <el-progress
         :percentage="statsPercentage"
         :stroke-width="10"
@@ -262,7 +376,7 @@ onMounted(() => {
     </div>
 
     <!-- 操作区 -->
-    <div class="action-section">
+    <div class="action-section" v-if="!showTrash">
       <div class="action-card add-card">
         <h3 class="action-card__title">
           {{ newParentId ? '添加子任务' : '添加新任务' }}
@@ -312,68 +426,46 @@ onMounted(() => {
 
     <!-- 任务列表 -->
     <div class="table-section">
-      <el-table
-        :data="todoList"
-        v-loading="loading"
-        stripe
-        row-key="id"
-        :tree-props="{ children: 'children' }"
-        class="todo-table"
-      >
-        <el-table-column prop="id" label="ID" width="70" align="center" />
-        <el-table-column label="标题" min-width="200">
-          <template #default="{ row }">
-            <div class="task-title-cell">
-              <el-icon
-                class="star-icon"
-                @click.stop="handleToggleStar(row)"
-              >
-                <StarFilled v-if="row.isStarred === 1" class="star--active" />
-                <Star v-else class="star--inactive" />
-              </el-icon>
-              <span :class="{ 'task-completed': row.status === 1 }">
-                {{ row.title }}
-              </span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="content" label="内容" show-overflow-tooltip min-width="140" />
-        <el-table-column label="状态" width="110" align="center">
-          <template #default="{ row }">
-            <el-tag
-              :type="row.status === 0 ? 'info' : 'success'"
-              class="status-tag"
-              @click="handleToggleStatus(row)"
-            >
-              {{ row.status === 0 ? '未完成' : '已完成' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="createTime" label="创建时间" width="175" />
-        <el-table-column label="操作" width="130" align="center">
-          <template #default="{ row }">
-            <el-button
-              v-if="!row.parentId"
-              :icon="Plus"
-              size="small"
-              circle
-              title="添加子任务"
-              @click="handleAddSubtask(row.id)"
+      <div v-loading="loading" class="todo-list-container">
+        <!-- 正常模式：可拖拽排序 -->
+        <draggable
+          v-if="!showTrash"
+          v-model="todoList"
+          item-key="id"
+          handle=".drag-handle"
+          ghost-class="drag-ghost"
+          @end="onDragEnd"
+        >
+          <template #item="{ element }">
+            <TodoItem
+              :item="element"
+              :trash-mode="false"
+              @toggle-star="handleToggleStar"
+              @toggle-status="handleToggleStatus"
+              @delete="handleDelete"
+              @add-subtask="handleAddSubtask"
+              @reorder-children="handleReorderChildren"
             />
-            <el-button
-              type="danger"
-              size="small"
-              plain
-              @click="handleDelete(row)"
-            >
-              删除
-            </el-button>
           </template>
-        </el-table-column>
-        <template #empty>
-          <el-empty description="暂无任务，快去添加吧！" />
+        </draggable>
+
+        <!-- 回收站模式：不可拖拽 -->
+        <template v-if="showTrash">
+          <TodoItem
+            v-for="element in todoList"
+            :key="element.id"
+            :item="element"
+            :trash-mode="true"
+            @restore="handleRestore"
+            @permanent-delete="handlePermanentDelete"
+          />
         </template>
-      </el-table>
+
+        <el-empty
+          v-if="!loading && todoList.length === 0"
+          :description="showTrash ? '回收站为空' : '暂无任务，快去添加吧！'"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -412,6 +504,10 @@ onMounted(() => {
 .app-subtitle strong {
   color: #67c23a;
   font-weight: 600;
+}
+
+.trash-toggle {
+  margin-top: 14px;
 }
 
 /* ========== 统计卡片行 ========== */
@@ -575,7 +671,7 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-/* ========== 表格区 ========== */
+/* ========== 任务列表区 ========== */
 .table-section {
   max-width: 960px;
   margin: 0 auto;
@@ -587,50 +683,18 @@ onMounted(() => {
     0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
-.todo-table {
-  border-radius: 12px;
+.todo-list-container {
+  padding: 12px 16px;
+  min-height: 120px;
 }
 
-/* ========== 表格行样式 ========== */
-.task-title-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.task-completed {
-  text-decoration: line-through;
-  color: #b0b3bb;
-}
-
-.status-tag {
-  cursor: pointer;
-  transition: transform 0.15s ease;
-}
-
-.status-tag:hover {
-  transform: scale(1.08);
-}
-
-/* ========== 星标图标 ========== */
-.star-icon {
-  cursor: pointer;
-  font-size: 18px;
-  flex-shrink: 0;
-  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.star-icon:hover {
-  transform: scale(1.25);
-}
-
-/* 用 class 替代内联 style */
-.star--active {
-  color: #f7ba2a;
-}
-
-.star--inactive {
-  color: #dcdfe6;
+/* ========== 拖拽占位样式（星标金色主题） ========== */
+.drag-ghost {
+  opacity: 0.55;
+  background: linear-gradient(135deg, #fef7e8, #fdf0d5);
+  border: 2px dashed #e6a23c;
+  border-radius: 8px;
+  box-shadow: 0 0 12px rgba(230, 162, 60, 0.25), inset 0 0 8px rgba(230, 162, 60, 0.08);
 }
 
 /* ========== 过渡动画 ========== */
@@ -643,15 +707,6 @@ onMounted(() => {
 .fade-leave-to {
   opacity: 0;
   transform: translateX(6px);
-}
-
-/* ========== 树形子行左边框 ========== */
-:deep(.el-table__row--level-1) td:first-child {
-  border-left: 2px solid #e4e7ed;
-}
-
-:deep(.el-table__row--level-2) td:first-child {
-  border-left: 2px solid #ebeef5;
 }
 
 /* ========== 响应式 ========== */

@@ -1,9 +1,6 @@
 package com.example.todo.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -135,6 +132,23 @@ public class TodoItem {
      * 数据库列名 parent_id，MyBatis-Plus 自动驼峰转下划线映射
      */
     private Long parentId;
+
+    /**
+     * 排序序号（拖拽排序用）
+     *
+     * 使用大间隔策略（1000, 2000, 3000...），插入时只需取中值，无需全量更新
+     */
+    @TableField("sort_order")
+    private Integer sortOrder;
+
+    /**
+     * 逻辑删除标记
+     *
+     * 0 = 正常，1 = 已删除
+     * @TableLogic 会自动为 select/delete 注入 is_deleted = 0 条件
+     */
+    @TableLogic
+    private Integer isDeleted;
 
     /**
      * 子任务列表（非数据库字段）

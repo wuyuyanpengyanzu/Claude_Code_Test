@@ -99,7 +99,6 @@ public class TodoController {
      */
     @PutMapping("/{id}")
     public Result<String> update(@PathVariable Long id, @RequestBody TodoItem todoItem) {
-        System.out.println("收到更新请求，星标状态为: " + todoItem.getIsStarred());
         todoService.update(id, todoItem);
         return Result.success("更新成功");
     }
@@ -147,5 +146,40 @@ public class TodoController {
     public Result<String> deleteCascade(@PathVariable Long id) {
         todoService.removeWithChildren(id);
         return Result.success("已级联删除该任务及其子任务");
+    }
+
+    /**
+     * 拖拽排序：按传入的 ID 顺序批量更新 sort_order
+     */
+    @PutMapping("/reorder")
+    public Result<String> reorder(@RequestBody List<Long> ids) {
+        todoService.reorder(ids);
+        return Result.success("排序更新成功");
+    }
+
+    /**
+     * 获取回收站任务列表
+     */
+    @GetMapping("/trash")
+    public Result<List<TodoItem>> trash() {
+        return Result.success(todoService.getTrash());
+    }
+
+    /**
+     * 还原任务及其子任务
+     */
+    @PutMapping("/{id}/restore")
+    public Result<String> restore(@PathVariable Long id) {
+        todoService.restore(id);
+        return Result.success("还原成功");
+    }
+
+    /**
+     * 物理删除任务（彻底删除，不可恢复）
+     */
+    @DeleteMapping("/{id}/permanent")
+    public Result<String> permanentDelete(@PathVariable Long id) {
+        todoService.permanentDelete(id);
+        return Result.success("已彻底删除");
     }
 }
